@@ -3,46 +3,54 @@
  *
  * Created: 04-07-2018 13:26:25
  * Author : Sahil
- */ 
+ */
 
 #define F_CPU 14745600UL
 #include <avr/io.h>
 #include <avr/interrupt.h>
-#define BAUD 9600									//serial com;
-#define BAUDRATE  ((F_CPU/(BAUD*16UL)-1))
 
-#define indicator_1 PORTB
+#define BAUD 9600                           // UART baud rate
+#define BAUDRATE ((F_CPU / (BAUD * 16UL)) - 1)
 
-void serialstart_1();
-void port_init();
-int value_1=0;
+#define indicator_1 PORTB                   // Output port for indication
+
+// Function prototypes
+void port_init(void);
+void serialstart_1(void);
+
+// Global variable to hold received UART data
+volatile int value_1 = 0;
+
 int main(void)
 {
-	sei();
-	port_init();
-	serialstart_1();
+    sei();               // Enable global interrupts
+    port_init();         // Initialize ports
+    serialstart_1();     // Initialize UART
+
     while (1) 
     {
-		indicator_1=value_1;
-		
+        indicator_1 = value_1;    // Display received value on PORTB LEDs
     }
 }
 
-void port_init()
+// Initialize PORTB as output for indicator LEDs
+void port_init(void)
 {
-	DDRB=0xFF;			//indiacator_1
+    DDRB = 0xFF;           // Set PORTB as output
 }
 
-void serialstart_1()
+// Initialize UART1 for 9600 baud, 8 data bits, no parity, 1 stop bit
+void serialstart_1(void)
 {
-	UBRR1H=BAUDRATE>>8;
-	UBRR1L=BAUDRATE;
-	UCSR1B=0b10011000;//enable RXEN TXEN
-	UCSR1C=0b00000110;// UCSZ1 UCSZ0
+    UBRR1H = (BAUDRATE >> 8);           // Set baud rate high byte
+    UBRR1L = BAUDRATE;                  // Set baud rate low byte
+    
+    UCSR1B = (1 << RXEN1) | (1 << TXEN1) | (1 << RXCIE1); // Enable RX, TX and RX interrupt
+    UCSR1C = (1 << UCSZ11) | (1 << UCSZ10);               // 8-bit data frame
 }
 
+// UART RX Complete Interrupt Service Routine
 ISR(USART1_RX_vect)
 {
-	value_1=UDR1;
+    value_1 = UDR1;          // Read received data from UART data register
 }
-

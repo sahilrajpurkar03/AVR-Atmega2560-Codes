@@ -3,7 +3,7 @@
  *
  * Created: 17-08-2018 16:48:17
  * Author : Sahil
- */ 
+ */
 
 #define F_CPU 14745600UL
 #include <avr/io.h>
@@ -11,88 +11,103 @@
 #include <avr/eeprom.h>
 #include <avr/interrupt.h>
 #include <stdlib.h>
-#define BAUD 9600									//serial com;
-#define BAUDRATE  ((F_CPU/(BAUD*16UL)-1))
 
-#define indicator_1 PORTK
+#define BAUD 9600
+#define BAUDRATE  ((F_CPU/(BAUD*16UL))-1)
 
-void port_init();
-void ADC_initiate();
+#define indicator_1 PORTK    // Output port to display encoder value
+
+// Function prototypes
+void port_init(void);
+void ADC_initiate(void);
 uint16_t ADC_read(uint8_t ch);
-void Endcoder_Start();
+void Encoder_Start(void);
 
-//Variable for Encoder
-int curA=0,preA=0,disp1=0;
+// Encoder variables
+int curA = 0;       // Current ADC value for encoder
+int preA = 0;       // Previous ADC value for encoder
+int disp1 = 0;      // Display value (accumulated encoder counts)
 
 int main(void)
 {
-	port_init();
-	ADC_initiate();
-	preA=ADC_read(1);
-    
-	while (1) 
+    port_init();        // Initialize ports
+    ADC_initiate();     // Initialize ADC
+
+    preA = ADC_read(1); // Read initial ADC value from channel 1 (rotary encoder)
+
+    while (1) 
     {
-		Endcoder_Start();
-		indicator_1=disp1;
+        Encoder_Start();         // Process encoder changes
+        indicator_1 = disp1;     // Output accumulated value to PORTK (e.g. LEDs)
     }
 }
 
-void port_init()
+// Initialize ports: PORTK as output, PORTF as input (ADC for encoder)
+void port_init(void)
 {
-	DDRK=0xFF;				//indicator_1
-	DDRF=0x00;				//Rotary_Encoder
+    DDRK = 0xFF;    // Set PORTK as output for indicator
+    DDRF = 0x00;    // Set PORTF as input for ADC channels
 }
 
-void Endcoder_Start()
+// Reads ADC value and updates encoder display count
+void Encoder_Start()
 {
-	curA=ADC_read(1);
+    curA = ADC_read(1);  // Read ADC channel 1 (encoder position)
 
-	disp1+= curA - preA;
-	if(curA - preA <=-150)
-	{
-		disp1 -= (curA-preA);
-		disp1++;
-	}
-	if(curA - preA >=150)
-	{
-		
-		disp1 -= (curA-preA);
-		disp1--;
-	}
-	preA = curA;
+    disp1 += curA - preA;   // Increment display value by difference
+
+    // Handle wrap-around / large jumps due to ADC rollover or noise
+    if (curA - preA <= -150)
+    {
+        disp1 -= (curA - preA);
+        disp1++;  // Increment by 1 for a rollover case
+    }
+    if (curA - preA >= 150)
+    {
+        disp1 -= (curA - preA);
+        disp1--;  // Decrement by 1 for rollover in opposite direction
+    }
+
+    preA = curA;   // Update previous reading
 }
 
+// Initialize ADC for single conversion on selected channel
 void ADC_initiate()
 {
-	ADMUX = (0<<REFS1)|(1<<REFS0)|(0<<ADLAR);  // AVcc //  right adjusted
-	ADCSRA = (1<<ADEN)|(0<<ADATE)|(0<<ADIE)|(1<<ADPS2)|(1<<ADPS1)|(1<<ADPS0); // bit4 ADC EOC flag // prescalar- 111 - 128 division factor
-	ADCSRB = 0x00;
+    // AVcc reference, right-adjusted result
+    ADMUX = (0 << REFS1) | (1 << REFS0) | (0 << ADLAR);
+    // Enable ADC, disable auto trigger & interrupt, prescaler = 128 (approx 115kHz ADC clock)
+    ADCSRA = (1 << ADEN) | (0 << ADATE) | (0 << ADIE) | (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0);
+    ADCSRB = 0x00; // Free running mode disabled
 }
 
+// Read ADC value from given channel (0-15)
 uint16_t ADC_read(uint8_t ch)
 {
-	ADMUX = ADMUX & 0b11100000;    //Clearing all the mux;
-	ADCSRB = ADCSRB & 0b11110111;  //------"-"-----------
-	ch = ch & 0b00001111;
-	if ( ch <= 7 )
-	{
-		ch = ch & 0b00000111; //
-		ADMUX = ADMUX | ch;
-		ADCSRB=0x00;
-	}
-	else
-	{
-		ch = ch-8;
-		ch = ch & 0b00000111;
-		ADMUX = ADMUX | ch;
-		ADCSRB=0x00;
-		ADCSRB = ADCSRB | (1<<MUX5);
-	}
-	
-	ADCSRA = ADCSRA | (1<<ADSC);    //Bit 6 to start conversion-ADSC
-	
-	while( !(ADCSRA & (1<<ADIF)) ); // Wait for conversion to complete
-	
-	return(ADC);
-	
+    // Clear previous channel selection bits (MUX4..0)
+    ADMUX &= 0xE0;
+    ADCSRB &= ~(1 << MUX5);
+
+    ch &= 0x0F;  // Mask to 4 bits
+
+    if (ch <= 7)
+    {
+        ADMUX |= ch;      // Set MUX bits for channels 0-7
+        ADCSRB = 0x00;
+    }
+    else
+    {
+        ch -= 8;
+        ADMUX |= ch;      // Set MUX bits for channels 8-15 (lower 3 bits)
+        ADCSRB = (1 << MUX5);  // Set MUX5 for higher channels
+    }
+
+    ADCSRA |= (1 << ADSC);    // Start conversion
+
+    // Wait for conversion to complete (ADIF set)
+    while (!(ADCSRA & (1 << ADIF)));
+
+    ADCSRA |= (1 << ADIF);    // Clear ADIF by writing one to it
+
+    return ADC;               // Return 10-bit ADC result
 }

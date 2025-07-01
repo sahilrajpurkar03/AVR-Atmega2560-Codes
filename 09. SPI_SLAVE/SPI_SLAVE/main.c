@@ -3,54 +3,62 @@
  *
  * Created: 27-07-2018 18:56:16
  * Author : Sahil
- */ 
+ */
 
 #define F_CPU 14745600UL
 #include <avr/io.h>
 #include <util/delay.h>
 #include <avr/interrupt.h>
 
+// SPI port and pin definitions
 #define port_SPI PORTB
 #define pin_MISO PINB3
-#define pin_SS PINB0
+#define pin_SS   PINB0
+
 #define indicator_1 PORTH
 
-void port_init();
-void SPI_SlaveInit();
-unsigned char SPI_SlaveReceive();
+// Function prototypes
+void port_init(void);
+void SPI_SlaveInit(void);
+uint8_t SPI_SlaveReceive(void);
 
 int main(void)
 {
-	port_init();
-	SPI_SlaveInit();
-	while (1)
-	{
-		indicator_1=SPI_SlaveReceive();
-	}
+    port_init();
+    SPI_SlaveInit();
+
+    while (1)
+    {
+        // Receive SPI data and display on indicator port
+        indicator_1 = SPI_SlaveReceive();
+    }
 }
 
-void port_init()
+// Initialize ports for SPI Slave and indicator
+void port_init(void)
 {
-	DDRH=0xFF;					//indicator_1
-	DDRB|=0x03;					//SPI
-	port_SPI |=(1<<pin_SS);
+    DDRH = 0xFF;               // PORTH as output (indicator LEDs)
+    DDRB &= ~((1 << pin_SS) | (1 << PINB4) | (1 << PINB5) | (1 << PINB6)); // Ensure SPI pins (except MISO) as input
+    DDRB |= (1 << pin_MISO);   // Set MISO as output
+    port_SPI |= (1 << pin_SS); // Set SS high by default (not selected)
 }
 
+// Initialize SPI in Slave mode
 void SPI_SlaveInit(void)
 {
-	/* Set MISO output, all others input */
-	port_SPI = (1<<pin_MISO);
-	/* Enable SPI */
-	SPCR = 0xC0;
+    port_SPI = (1 << pin_MISO);  // Set MISO high initially (optional)
+    
+    // Enable SPI in Slave mode (SPE=1, MSTR=0)
+    SPCR = (1 << SPE);
 }
 
-unsigned char SPI_SlaveReceive(void)
+// Receive a byte from SPI Master
+uint8_t SPI_SlaveReceive(void)
 {
-	port_SPI&=(~(1<<pin_SS));
-	/* Wait for reception complete */
-	while(!(SPSR & (1<<SPIF)))	;
-	/* Return Data Register */
-	return SPDR;
-	port_SPI|=(1<<pin_SS);
-}
+    // Wait for reception complete (SPIF flag set)
+    while (!(SPSR & (1 << SPIF)))
+        ;
 
+    // Return received data from SPI data register
+    return SPDR;
+}
